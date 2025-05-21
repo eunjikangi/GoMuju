@@ -18,6 +18,7 @@ SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
 SENDER_EMAIL = os.getenv('SENDER_EMAIL')
 SENDER_PASSWORD = os.getenv('SENDER_PASSWORD')
 RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')
+RECIPIENT_EMAIL_2 = os.getenv('RECIPIENT_EMAIL_2')
 
 def setup_driver():
     """Setup and return Chrome driver"""
@@ -72,11 +73,15 @@ def login(driver):
         return False
 
 def send_email_notification(subject, message):
-    """Send email notification"""
+    """Send email notification to multiple recipients"""
     try:
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
-        msg['To'] = RECIPIENT_EMAIL
+        # 여러 수신자를 리스트로 설정
+        recipients = [RECIPIENT_EMAIL]
+        if RECIPIENT_EMAIL_2:  # 두 번째 수신자가 설정되어 있으면 추가
+            recipients.append(RECIPIENT_EMAIL_2)
+        msg['To'] = ', '.join(recipients)  # 수신자들을 쉼표로 구분
         msg['Subject'] = subject
 
         msg.attach(MIMEText(message, 'plain'))
@@ -157,6 +162,23 @@ def check_ticket_availability(driver):
 
 def main():
     print("Starting ticket monitoring...")
+    
+    # 프로그램 시작 시 테스트 메일 전송
+    test_subject = "🎫 무주등나무운동장 티켓 모니터링 시작"
+    test_message = """
+    안녕하세요!
+    
+    무주등나무운동장 티켓 모니터링이 시작되었습니다.
+    티켓이 예매 가능해지면 알림을 보내드리겠습니다.
+    
+    이 메일은 자동으로 발송되었습니다.
+    """
+    
+    if send_email_notification(test_subject, test_message):
+        print("Test email sent successfully!")
+    else:
+        print("Failed to send test email")
+    
     driver = setup_driver()
     
     try:
