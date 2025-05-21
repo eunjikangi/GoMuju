@@ -96,24 +96,73 @@ def send_email_notification(subject, message):
         print(f"Error sending email: {e}")
         return False
 
+def send_error_notification(error_message):
+    """Send error notification to primary recipient only"""
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = RECIPIENT_EMAIL  # Only send to primary recipient
+        msg['Subject'] = "⚠️ 무주등나무운동장 티켓 모니터링 오류 발생"
+
+        message = f"""
+        안녕하세요!
+        
+        무주등나무운동장 티켓 모니터링 중 오류가 발생했습니다.
+        
+        오류 내용:
+        {error_message}
+        
+        프로그램을 확인해주세요.
+        
+        이 메일은 자동으로 발송되었습니다.
+        """
+        
+        msg.attach(MIMEText(message, 'plain'))
+
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Error sending error notification: {e}")
+        return False
+
+def check_session(driver):
+    """Check if the current session is valid"""
+    try:
+        # 현재 URL이 로그인 페이지인지 확인
+        if "예매자 정보 인증" in driver.page_source:
+            return False
+        return True
+    except Exception as e:
+        print(f"Error checking session: {e}")
+        return False
+
 def check_ticket_availability(driver):
     """Check if any ticket is available using Selenium"""
     url = "https://www.dtidea.kr/mjff/html/03/01.php?idx=7"
     
     try:
         print("Checking ticket availability...")
+        
+        # 세션 체크
+        if not check_session(driver):
+            print("Session invalid, attempting to login...")
+            login_url = "https://www.dtidea.kr/mjff/html/09/02.php"
+            driver.get(login_url)
+            if not login(driver):
+                error_msg = "세션 만료 후 재로그인 실패"
+                print(error_msg)
+                send_error_notification(error_msg)
+                return False, []
+            time.sleep(2)
+        
         driver.get(url)
         
         # Wait for the page to load
         time.sleep(3)
-        
-        # Check if we need to login again
-        if "예매자 정보 인증" in driver.page_source:
-            print("Login required, attempting to login...")
-            if not login(driver):
-                print("Login failed during ticket check")
-                return False
-            time.sleep(2)
         
         # Wait for the table to be present
         wait = WebDriverWait(driver, 10)
@@ -122,7 +171,7 @@ def check_ticket_availability(driver):
             print("Found ticket table")
         except Exception as e:
             print(f"Could not find ticket table: {e}")
-            return False
+            return False, []
             
         # Get all cells in the first row
         try:
@@ -163,25 +212,9 @@ def check_ticket_availability(driver):
 def main():
     print("Starting ticket monitoring...")
     
-    # 프로그램 시작 시 테스트 메일 전송
-    test_subject = "🎫 무주등나무운동장 티켓 모니터링 시작"
-    test_message = """
-    안녕하세요!
-    
-    무주등나무운동장 티켓 모니터링이 시작되었습니다.
-    티켓이 예매 가능해지면 알림을 보내드리겠습니다.
-    
-    이 메일은 자동으로 발송되었습니다.
-    """
-    
-    if send_email_notification(test_subject, test_message):
-        print("Test email sent successfully!")
-    else:
-        print("Failed to send test email")
-    
-    driver = setup_driver()
-    
     try:
+        driver = setup_driver()
+        
         # 먼저 로그인 페이지로 이동
         login_url = "https://www.dtidea.kr/mjff/html/09/02.php"
         driver.get(login_url)
@@ -190,39 +223,51 @@ def main():
         if login(driver):
             print("Login successful!")
         else:
-            print("Login failed!")
+            error_msg = "로그인에 실패했습니다."
+            print(error_msg)
+            send_error_notification(error_msg)
             return
             
         # 티켓 모니터링 시작
         while True:
-            is_available, available_dates = check_ticket_availability(driver)
-            if is_available:
-                subject = "🎫 무주등나무운동장 티켓 예매 가능 알림"
-                message = f"""
-                안녕하세요!
-                
-                무주등나무운동장 티켓이 매진되지 않았습니다!
-                예매 가능한 날짜: {', '.join(available_dates)}
-                
-                지금 바로 예매하세요!
-                예매 링크: https://www.dtidea.kr/mjff/html/03/01.php?idx=7
-                
-                이 메일은 자동으로 발송되었습니다.
-                """
-                
-                if send_email_notification(subject, message):
-                    print("Email notification sent successfully!")
-                else:
-                    print("Failed to send email notification")
+            try:
+                is_available, available_dates = check_ticket_availability(driver)
+                if is_available:
+                    subject = "🎫 무주등나무운동장 티켓 예매 가능 알림"
+                    message = f"""
+                    안녕하세요!
+                    
+                    무주등나무운동장 티켓이 매진되지 않았습니다!
+                    예매 가능한 날짜: {', '.join(available_dates)}
+                    
+                    지금 바로 예매하세요!
+                    예매 링크: https://www.dtidea.kr/mjff/html/03/01.php?idx=7
+                    
+                    이 메일은 자동으로 발송되었습니다.
+                    """
+                    
+                    if send_email_notification(subject, message):
+                        print("Email notification sent successfully!")
+                    else:
+                        print("Failed to send email notification")
+            except Exception as e:
+                error_msg = f"티켓 확인 중 오류 발생: {str(e)}"
+                print(error_msg)
+                send_error_notification(error_msg)
             
-            # Check every 5 minutes
-            print("Waiting 5 minutes before next check...")
-            time.sleep(300)
+            # Check every 1 minute
+            print("Waiting 1 minute before next check...")
+            time.sleep(60)
             
+    except Exception as e:
+        error_msg = f"프로그램 실행 중 오류 발생: {str(e)}"
+        print(error_msg)
+        send_error_notification(error_msg)
     except KeyboardInterrupt:
         print("\nStopping ticket monitoring...")
     finally:
-        driver.quit()
+        if 'driver' in locals():
+            driver.quit()
 
 if __name__ == "__main__":
     main() 
